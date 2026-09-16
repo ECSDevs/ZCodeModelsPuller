@@ -1,0 +1,25 @@
+# ---- 缓存 / 临时产物 ----
+__pycache__/
+*.pyc
+
+# ---- 注入产物 / 备份（敏感：包含 asar 备份与临时解包目录）----
+# 注入会生成并整改这些产物，不应纳入版本控制
+app.asar.new-*
+extract_*/
+unpacked*/
+
+# ---- Node / Python 工具缓存 ----
+node_modules/
+.pnpm-store/
+.pnpm-cache/
+
+# ---- 编辑器 / 系统 ----
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# ---- 本地测试脚本（临时 CDP 调试用，勿提交）----
+cdp_*.js
+*.png
