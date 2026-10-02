@@ -1,0 +1,20 @@
+{
+  "name": "zcode-model-puller",
+  "version": "1.0.0",
+  "description": "ZCode 自定义模型供应商 - 自动拉取模型列表与思考档位管理插件",
+  "main": "dist/zcode-model-puller.js",
+  "scripts": {
+    "build": "esbuild src/renderer/index.js --bundle --format=iife --outfile=zcode-model-puller.js",
+    "check": "node --check zcode-model-puller.js",
+    "watch": "esbuild src/renderer/index.js --bundle --format=iife --outfile=zcode-model-puller.js --watch"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  },
+  "license": "MIT"
+}
