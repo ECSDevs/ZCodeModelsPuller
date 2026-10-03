@@ -30,10 +30,20 @@ export function resolveMaxOutputMap(apiFormat) {
 export function resolveReasoningSpec(modelId, meta = {}, apiFormat = "openai-responses") {
   const me = meta || {};
 
+  let map = "";
+  if (apiFormat === "anthropic-messages") {
+    map = reasoningAnthropicCel.trim();
+  } else if (apiFormat === "openai-chat-completions") {
+    map = reasoningOpenaiChatCel.trim();
+  } else {
+    map = reasoningOpenaiResponsesCel.trim();
+  }
+
   // 取消内置家族表：思考档位必须严格来自 OMP efforts (me.r) 或明确标记 reasoning
   const hasEfforts = Array.isArray(me.r) && me.r.length > 0;
   if (!hasEfforts && !me.reasoning) {
-    return null;
+    // 官方规范：即使模型未开启/未收录思考档位，仍需保留 values: ["disabled"] 满足 Zod 强校验
+    return { values: ["disabled"], map };
   }
 
   let levels = [];
@@ -44,15 +54,6 @@ export function resolveReasoningSpec(modelId, meta = {}, apiFormat = "openai-res
   // 官方规范：values 首位必须为 disabled
   const values = ["disabled", ...levels];
 
-  let map = "";
-  if (apiFormat === "anthropic-messages") {
-    map = reasoningAnthropicCel.trim();
-  } else if (apiFormat === "openai-chat-completions") {
-    map = reasoningOpenaiChatCel.trim();
-  } else {
-    map = reasoningOpenaiResponsesCel.trim();
-  }
-
   return { values, map };
 }
 
@@ -62,28 +63,31 @@ export function buildOfficialModelConfig(modelId, meta = {}, apiFormat = "openai
 
   const contextWindow = resolveContextWindow(id, me);
   const maxOut = resolveMaxOutputTokens(id, me);
-  const maxOutputMap = resolveMaxOutputMap(apiFormat);
-  const inputFormat = resolveInputFormat(id, me);
+  const rawInputFormat = resolveInputFormat(id, me);
   const abilities = resolveAbilities(id, me, apiFormat);
   const reasoningSpec = resolveReasoningSpec(id, me, apiFormat);
 
-  const properties = {
-    requiresMfjsToolSchema: false,
-    contextWindow,
-    inputFormat,
-    outputFormat: {
-      supportsText: true,
-    },
-    supportsToolCall: abilities.supportsToolCall,
-    supportsJsonSchemaOutput: abilities.supportsJsonSchemaOutput,
-    supportsNativeWebSearch: abilities.supportsNativeWebSearch,
-    supportsMidConversationSystem: abilities.supportsMidConversationSystem,
+  // 严格对齐 ZCode Zod Schema for personalConfig:
+  // inputFormat 仅允许 supportsImage, supportsVideo, supportsPdf（禁止 supportsText / supportsAudio）
+  const cleanInputFormat = {
+    supportsImage: !!rawInputFormat.supportsImage,
+    supportsVideo: !!rawInputFormat.supportsVideo,
+    supportsPdf: !!rawInputFormat.supportsPdf,
   };
 
+  // properties 仅允许 contextWindow, inputFormat, supportsJsonSchemaOutput, supportsNativeWebSearch, supportsMidConversationSystem
+  const properties = {
+    contextWindow,
+    inputFormat: cleanInputFormat,
+    supportsJsonSchemaOutput: !!abilities.supportsJsonSchemaOutput,
+    supportsNativeWebSearch: !!abilities.supportsNativeWebSearch,
+    supportsMidConversationSystem: !!abilities.supportsMidConversationSystem,
+  };
+
+  // optionSpecs: maxOutputTokens 仅包含 max（map 仅用于官方内置映射）；reasoningLevel 包含 values 与 map
   const optionSpecs = {
     maxOutputTokens: {
       max: maxOut,
-      map: maxOutputMap,
     },
   };
 

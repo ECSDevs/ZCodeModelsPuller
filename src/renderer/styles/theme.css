@@ -244,9 +244,9 @@
       border: 1px solid color-mix(in srgb, var(--color-success, #10b981) 30%, transparent);
     }
     .zcode-pull-badge-exists {
-      background-color: var(--color-surface, #f4f4f5);
-      color: var(--color-foreground-subtle, #71717a);
-      border: 1px solid var(--color-border, #e4e4e7);
+      background-color: color-mix(in srgb, var(--color-warning, #f59e0b) 12%, transparent);
+      color: var(--color-warning, #f59e0b);
+      border: 1px solid color-mix(in srgb, var(--color-warning, #f59e0b) 28%, transparent);
     }
 
     /* 弹窗底部操作区 */

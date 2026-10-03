@@ -58,25 +58,26 @@ export async function openModelSelectModal(models, baseUrl, apiKey) {
       }
 
       closeModal();
-      showToast(`正在把 ${toAdd.length} 个模型填入表单…`);
+      showToast(`正在同步 ${toAdd.length} 个模型…`);
       const res = await addModelsToOfficialForm(toAdd);
       if (!res.ok) {
         showToast(`降级模式：逐个弹出官方「添加模型」弹窗（${res.reason || "未知原因"}）…`);
         await addModelsViaModal(toAdd);
       }
-      const told = res.ok ? res.added : toAdd.length;
 
-      const saveBtn = Array.from(document.querySelectorAll("button")).find(
-        (b) => /(保存|添加供应商|创建|save|add provider|create)/i.test((b.textContent || "").trim()) &&
-               b.offsetParent !== null &&
-               b.id !== "zcode-auto-pull-models-btn"
-      );
-
-      if (saveBtn) {
-        showToast(`已填入 ${told} 个模型，请点击官方「保存」完成添加`);
+      const addedCount = res.added || 0;
+      const overwrittenCount = res.overwritten || 0;
+      let toastMsg = "";
+      if (addedCount > 0 && overwrittenCount > 0) {
+        toastMsg = `已成功添加 ${addedCount} 个新模型，并覆盖更新 ${overwrittenCount} 个现有模型！`;
+      } else if (overwrittenCount > 0) {
+        toastMsg = `已成功覆盖更新 ${overwrittenCount} 个现有模型！`;
+      } else if (addedCount > 0) {
+        toastMsg = `已成功添加 ${addedCount} 个新模型！`;
       } else {
-        showToast(`已成功添加 ${told} 个模型！`);
+        toastMsg = "模型同步完成！";
       }
+      showToast(toastMsg);
       setTimeout(() => {
         triggerZCodeUIRefresh();
       }, 120);

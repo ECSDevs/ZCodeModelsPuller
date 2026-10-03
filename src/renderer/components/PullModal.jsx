@@ -11,11 +11,12 @@ export function PullModal({
   const [keyword, setKeyword] = useState("");
   const [selectedIds, setSelectedIds] = useState(() => {
     const initial = new Set();
-    models.forEach((id) => {
-      if (!existingSet.has(id)) {
-        initial.add(id);
-      }
-    });
+    const newModels = models.filter((id) => !existingSet.has(id));
+    if (newModels.length > 0) {
+      newModels.forEach((id) => initial.add(id));
+    } else {
+      models.forEach((id) => initial.add(id));
+    }
     return initial;
   });
   const [submitting, setSubmitting] = useState(false);
@@ -29,6 +30,22 @@ export function PullModal({
   const newModelsCount = useMemo(() => {
     return models.filter((id) => !existingSet.has(id)).length;
   }, [models, existingSet]);
+
+  const selectedNewCount = useMemo(() => {
+    let count = 0;
+    selectedIds.forEach((id) => {
+      if (!existingSet.has(id)) count++;
+    });
+    return count;
+  }, [selectedIds, existingSet]);
+
+  const selectedOverwriteCount = useMemo(() => {
+    let count = 0;
+    selectedIds.forEach((id) => {
+      if (existingSet.has(id)) count++;
+    });
+    return count;
+  }, [selectedIds, existingSet]);
 
   const toggleModel = useCallback((id) => {
     setSelectedIds((prev) => {
@@ -69,10 +86,24 @@ export function PullModal({
     }
   };
 
+  const getConfirmText = () => {
+    if (submitting) return "正在同步...";
+    if (selectedOverwriteCount > 0 && selectedNewCount === 0) {
+      return "确认覆盖 (" + selectedIds.size + ")";
+    }
+    if (selectedOverwriteCount > 0) {
+      return "确认添加与覆盖 (" + selectedIds.size + ")";
+    }
+    return "确认添加 (" + selectedIds.size + ")";
+  };
+
   return (
-    <div class="zcode-pull-modal-overlay zcode-pull-overlay" onClick={(e) => {
-      if (e.target === e.currentTarget) onClose();
-    }}>
+    <div
+      class="zcode-pull-modal-overlay zcode-pull-overlay"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
       <div class="zcode-pull-modal">
         <div class="zcode-pull-header">
           <div class="zcode-pull-title">
@@ -87,7 +118,9 @@ export function PullModal({
             >
               <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z" />
             </svg>
-            <span>同步模型 (共 {models.length} 个，可新增新模型 {newModelsCount} 个)</span>
+            <span>
+              同步模型 (共 {models.length} 个，新增 {newModelsCount} 个，可覆盖 {models.length - newModelsCount} 个)
+            </span>
           </div>
           <button
             type="button"
@@ -165,10 +198,18 @@ export function PullModal({
           <div class="zcode-pull-footer">
             <div class="zcode-pull-count-info zcode-pull-summary">
               已选择{" "}
-              <span class="zcode-pull-num" id="zcode-selected-num">
+              <strong class="zcode-pull-num" id="zcode-selected-num">
                 {selectedIds.size}
-              </span>{" "}
+              </strong>{" "}
               / {models.length} 个模型
+              {selectedOverwriteCount > 0 && (
+                <span
+                  class="zcode-pull-overwrite-hint"
+                  style={{ marginLeft: "6px", color: "var(--color-warning, #f59e0b)" }}
+                >
+                  （含 {selectedOverwriteCount} 个覆盖）
+                </span>
+              )}
             </div>
             <div class="zcode-pull-footer-btns">
               <button
@@ -186,9 +227,7 @@ export function PullModal({
                 disabled={selectedIds.size === 0 || submitting}
                 onClick={handleConfirm}
               >
-                <span>
-                  {submitting ? "正在添加..." : `确认添加 (${selectedIds.size})`}
-                </span>
+                <span>{getConfirmText()}</span>
               </button>
             </div>
           </div>

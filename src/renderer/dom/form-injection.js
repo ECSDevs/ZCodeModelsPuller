@@ -55,9 +55,37 @@ export function readApiKind() {
   return "openai-compatible";
 }
 
-// 无感批量添加：兼容新版 React Hook / ProviderSettingsFormModel 与旧版 onAddModel
+// 清理与严格对齐 personalConfig 字段，符合 ZCode Zod Schema
+function sanitizePersonalConfig(rawCfg) {
+  const c = rawCfg || {};
+  const props = c.properties || {};
+  const opt = c.optionSpecs || {};
+  const rawInput = props.inputFormat || {};
+
+  const clean = {
+    enabled: c.enabled !== undefined ? !!c.enabled : true,
+    properties: {
+      ...(props.contextWindow !== undefined ? { contextWindow: Number(props.contextWindow) } : {}),
+      inputFormat: {
+        supportsImage: !!rawInput.supportsImage,
+        supportsVideo: !!rawInput.supportsVideo,
+        supportsPdf: !!rawInput.supportsPdf,
+      },
+      supportsJsonSchemaOutput: !!props.supportsJsonSchemaOutput,
+      supportsNativeWebSearch: !!props.supportsNativeWebSearch,
+      supportsMidConversationSystem: !!props.supportsMidConversationSystem,
+    },
+    optionSpecs: {
+      ...(opt.maxOutputTokens?.max !== undefined ? { maxOutputTokens: { max: Number(opt.maxOutputTokens.max) } } : {}),
+      ...(opt.reasoningLevel?.values ? { reasoningLevel: { values: opt.reasoningLevel.values, map: opt.reasoningLevel.map } } : {}),
+    },
+  };
+  return clean;
+}
+
+// 无感批量添加与覆盖更新：兼容新版 React Hook / onModelCommit / onAddModel
 export async function addModelsToOfficialForm(ids) {
-  if (!ids || !ids.length) return { ok: true, added: 0 };
+  if (!ids || !ids.length) return { ok: true, added: 0, overwritten: 0 };
 
   const findBtn = () =>
     document.querySelector('[data-testid="model-provider-add-model-button"]') ||
@@ -69,94 +97,183 @@ export async function addModelsToOfficialForm(ids) {
   if (!btn) return { ok: false, reason: "未找到「添加模型」按钮" };
 
   let onAdd = findPropUp(btn, "onAddModel");
+  let onModelCommit = findPropUp(btn, "onModelCommit");
+  let onDelete = findPropUp(btn, "onDeleteModel");
   let onAddPersonal = null;
+  let onDeletePersonal = null;
   let currentProviderId = null;
+  let settingsRevision = null;
+  let currentModels = [];
 
   let f = getFiber(btn);
   while (f) {
     if (f.memoizedProps) {
-      if (!onAdd && typeof f.memoizedProps.onAddModel === "function") {
-        onAdd = f.memoizedProps.onAddModel;
-      }
-      if (!onAddPersonal && typeof f.memoizedProps.onAddPersonalModel === "function") {
-        onAddPersonal = f.memoizedProps.onAddPersonalModel;
-      }
-      if (!currentProviderId && f.memoizedProps.provider && f.memoizedProps.provider.providerId) {
-        currentProviderId = f.memoizedProps.provider.providerId;
-      }
-      if (!currentProviderId && typeof f.memoizedProps.providerId === "string") {
-        currentProviderId = f.memoizedProps.providerId;
-      }
+      const p = f.memoizedProps;
+      if (!onAdd && typeof p.onAddModel === "function") onAdd = p.onAddModel;
+      if (!onModelCommit && typeof p.onModelCommit === "function") onModelCommit = p.onModelCommit;
+      if (!onDelete && typeof p.onDeleteModel === "function") onDelete = p.onDeleteModel;
+      if (!onAddPersonal && typeof p.onAddPersonalModel === "function") onAddPersonal = p.onAddPersonalModel;
+      if (!onDeletePersonal && typeof p.onDeletePersonalModel === "function") onDeletePersonal = p.onDeletePersonalModel;
+      if (!currentProviderId && p.providerId) currentProviderId = p.providerId;
+      if (!currentProviderId && p.provider?.providerId) currentProviderId = p.provider.providerId;
+      if (!settingsRevision && p.settingsRevision !== undefined) settingsRevision = p.settingsRevision;
+      if (currentModels.length === 0 && Array.isArray(p.models)) currentModels = p.models;
     }
     f = f.return;
   }
 
-  if (!onAdd && !onAddPersonal) return { ok: false, reason: "未找到官方添加模型回调" };
+  if (!onAdd && !onAddPersonal && !onModelCommit) {
+    return { ok: false, reason: "未找到官方添加/保存模型回调" };
+  }
 
   const kind = readApiKind();
   const kinds = [kind];
   let added = 0;
+  let overwritten = 0;
 
   for (const id of ids) {
     const curBtn = findBtn();
-    const curOnAdd = curBtn ? findPropUp(curBtn, "onAddModel") : onAdd;
+    const curOnAdd = curBtn ? (findPropUp(curBtn, "onAddModel") || onAdd) : onAdd;
+    const curOnCommit = curBtn ? (findPropUp(curBtn, "onModelCommit") || onModelCommit) : onModelCommit;
+    const curOnDelete = curBtn ? (findPropUp(curBtn, "onDeleteModel") || onDelete) : onDelete;
 
-    const me = (window.__zcodeMeta || {})[id] || {};
     let realApiFormat = "openai-responses";
     if (curBtn) {
-      let f = getFiber(curBtn);
-      while (f) {
-        if (f.memoizedProps) {
-          if (typeof f.memoizedProps.apiFormat === "string") { realApiFormat = f.memoizedProps.apiFormat; break; }
-          const prov = f.memoizedProps.provider;
-          if (prov?.config?.api?.type) { realApiFormat = prov.config.api.type; break; }
+      let fCur = getFiber(curBtn);
+      while (fCur) {
+        if (fCur.memoizedProps) {
+          if (typeof fCur.memoizedProps.apiFormat === "string") {
+            realApiFormat = fCur.memoizedProps.apiFormat;
+            break;
+          }
+          const prov = fCur.memoizedProps.provider;
+          if (prov?.config?.api?.type) {
+            realApiFormat = prov.config.api.type;
+            break;
+          }
         }
-        f = f.return;
+        fCur = fCur.return;
       }
     }
 
+    // 动态从最新 fiber 节点刷新当前模型列表与 settingsRevision
+    let modelsList = currentModels;
+    if (curBtn) {
+      let fCur = getFiber(curBtn);
+      while (fCur) {
+        if (fCur.memoizedProps?.models && Array.isArray(fCur.memoizedProps.models)) {
+          modelsList = fCur.memoizedProps.models;
+          if (fCur.memoizedProps.settingsRevision !== undefined) {
+            settingsRevision = fCur.memoizedProps.settingsRevision;
+          }
+          break;
+        }
+        fCur = fCur.return;
+      }
+    }
+
+    const existingModel = (modelsList || []).find(
+      (m) => (m.modelId || m.id) === id
+    );
+
+    const me = (window.__zcodeMeta || {})[id] || {};
     const fullOfficialConfig = buildOfficialModelConfig(id, me, realApiFormat);
+    const cleanPersonal = sanitizePersonalConfig(fullOfficialConfig);
 
     const modelObj = {
       modelId: id,
       providerId: currentProviderId || "custom",
-      displayName: me.name || id,
+      displayName: me.name || (existingModel && existingModel.displayName) || id,
       kind: "candidate",
       enabled: true,
       useRecommendedConfig: false,
-      personalConfig: {
-        ...fullOfficialConfig,
-      },
+      personalConfig: cleanPersonal,
       config: {
-        ...fullOfficialConfig,
+        ...cleanPersonal,
         enabled: true,
       },
       kinds,
       defaultKind: kind,
     };
 
+    // 1. 若模型已存在：执行覆盖更新逻辑
+    if (existingModel) {
+      let overwriteSuccess = false;
+
+      // 1.1 首选：调用官方原子 onModelCommit 直接覆盖写盘
+      if (typeof curOnCommit === "function") {
+        try {
+          const nextModel = {
+            ...structuredClone(existingModel),
+            ...modelObj,
+            personalConfig: sanitizePersonalConfig({
+              ...structuredClone(existingModel.personalConfig || {}),
+              ...cleanPersonal,
+            }),
+            config: sanitizePersonalConfig({
+              ...structuredClone(existingModel.config || {}),
+              ...cleanPersonal,
+            }),
+          };
+          await curOnCommit(id, nextModel, undefined);
+          overwritten++;
+          overwriteSuccess = true;
+        } catch (commitErr) {
+          console.warn(`[ZCode-Model-Puller] onModelCommit 覆盖模型 ${id} 失败，尝试删除后重新添加:`, commitErr);
+        }
+      }
+
+      // 1.2 备选：若 onModelCommit 不可用或失败，先删除旧模型再新增
+      if (!overwriteSuccess) {
+        try {
+          if (typeof curOnDelete === "function") {
+            await curOnDelete(id);
+          } else if (typeof onDeletePersonal === "function" && currentProviderId) {
+            await onDeletePersonal(currentProviderId, id);
+          }
+          await new Promise((r) => setTimeout(r, 60));
+
+          if (typeof curOnAdd === "function") {
+            await curOnAdd(modelObj);
+            overwritten++;
+            overwriteSuccess = true;
+          } else if (typeof onAddPersonal === "function" && currentProviderId) {
+            await onAddPersonal(currentProviderId, modelObj);
+            overwritten++;
+            overwriteSuccess = true;
+          }
+        } catch (delAddErr) {
+          console.warn(`[ZCode-Model-Puller] 删除重加模型 ${id} 失败:`, delAddErr);
+        }
+      }
+
+      if (overwriteSuccess) continue;
+    }
+
+    // 2. 若模型不存在：执行新增逻辑
+    let addSuccess = false;
     if (typeof curOnAdd === "function") {
       try {
-        curOnAdd(modelObj);
+        await curOnAdd(modelObj);
         added++;
-        continue;
+        addSuccess = true;
       } catch (e) {
         console.warn("[ZCode-Model-Puller] onAddModel 失败，尝试 onAddPersonalModel:", e);
       }
     }
 
-    if (typeof onAddPersonal === "function" && currentProviderId) {
+    if (!addSuccess && typeof onAddPersonal === "function" && currentProviderId) {
       try {
-        onAddPersonal(currentProviderId, modelObj);
+        await onAddPersonal(currentProviderId, modelObj);
         added++;
-        continue;
+        addSuccess = true;
       } catch (e2) {
         console.warn("[ZCode-Model-Puller] onAddPersonalModel 失败:", e2);
       }
     }
   }
 
-  return { ok: added > 0, added };
+  return { ok: added > 0 || overwritten > 0, added, overwritten };
 }
 
 // 降级模式：逐个驱动官方「添加模型」弹窗
