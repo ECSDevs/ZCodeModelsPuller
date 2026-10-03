@@ -74,13 +74,19 @@ def cmd_install(asar: Path, bak: Path, dry_run: bool) -> None:
 
     if not dry_run:
         backup_asar(asar, bak, dry_run=False)
+        # 若当前 asar 已含历史注入且存在干净的原版备份，先恢复为原版再解包注入，确保每次均为纯净基准
+        if bak.exists() and scan_bytes(bak, [MARKER_IPC, MARKER_HTML])[MARKER_IPC] == 0:
+            cur_counts = scan_bytes(asar, [MARKER_IPC, MARKER_HTML])
+            if cur_counts[MARKER_IPC] > 0 or cur_counts[MARKER_HTML] > 0:
+                shutil.copy2(bak, asar)
+                info(f"检测到当前 asar 已含历史注入，已自动基于官方原版备份重置基准 → {asar}")
 
     work = Path(tempfile.gettempdir()) / f"zcode_inject_build_{os.getpid()}"
     if work.exists():
         shutil.rmtree(work, ignore_errors=True)
     work.mkdir(parents=True, exist_ok=True)
     try:
-        info("解包 app.asar …（约百 MB，可能需要一两分钟）")
+        info(f"解包 {asar.name} …（约百 MB，可能需要一两分钟）")
         rc, out, err = run_npx("extract", str(asar), str(work))
         if rc != 0:
             die(f"解包失败：{err.strip() or out.strip()}")

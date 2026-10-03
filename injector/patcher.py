@@ -56,10 +56,16 @@ def patch_html(path: Path, dry_run: bool) -> dict:
 
 
 def find_ipc_holder(src: str) -> str | None:
-    for m in RE_IPC_HOLDER.finditer(src):
-        name = m.group("H")
-        if name and name not in {"electron", "ipcRenderer"}:
-            return name
+    """从 exposeInMainWorld("zcode", ...) 附近或整个文件寻找 ipcRenderer 持有者。"""
+    m = RE_PRELOAD_ANCHOR.search(src)
+    window = src[m.end() : m.end() + 4000] if m else ""
+    h = RE_IPC_HOLDER.search(window) or RE_IPC_HOLDER.search(src)
+    if h and h.group("H"):
+        return f"{h.group('H')}.ipcRenderer"
+    if re.search(r"\bipcRenderer\.invoke\b", src):
+        return "ipcRenderer"
+    if 'require("electron")' in src:
+        return 'require("electron").ipcRenderer'
     return None
 
 
@@ -67,31 +73,40 @@ def patch_preload(path: Path, dry_run: bool) -> dict:
     if not path.exists():
         return {"layer": "preload", "ok": False, "note": "out/preload/index.cjs 不存在"}
     src = path.read_text(encoding="utf-8", errors="replace")
-    if MARKER_IPC in src:
-        if "simulateMouseClick" in src:
-            return {"layer": "preload", "ok": True, "applied": False, "note": "已含完整 IPC 通道，跳过"}
-        holder = find_ipc_holder(src)
-        if not holder:
-            return {"layer": "preload", "ok": False, "note": "已注入但未找到 ipcRenderer 持有者"}
-        extra = (
-            '  simulateMouseClick:(x,y)=>(%s).invoke("zcode:simulate-mouse-click",{x:x,y:y}),\n'
-            '  simulateMouseMove:(x,y)=>(%s).invoke("zcode:simulate-mouse-move",{x:x,y:y}),\n'
-        ) % (holder, holder)
-        anchor = "getModelMetadata:"
-        i = src.find(anchor)
-        if i < 0:
-            return {"layer": "preload", "ok": False, "note": "未找到 getModelMetadata 键锚点"}
-        j = src.find("\n", i)
-        if dry_run:
-            return {"layer": "preload", "ok": True, "applied": False, "note": f"待追加 simulate 通道（持有者：{holder}）"}
-        path.write_text(src[: j + 1] + extra + src[j + 1 :], encoding="utf-8")
-        return {"layer": "preload", "ok": True, "applied": True, "note": f"已补注入 simulate 通道（持有者：{holder}）"}
-    m = RE_PRELOAD_ANCHOR.search(src)
-    if not m:
-        return {"layer": "preload", "ok": False, "note": "未找到 window.zcode exposeInMainWorld 锚点"}
     holder = find_ipc_holder(src)
     if not holder:
         return {"layer": "preload", "ok": False, "note": "未找到 ipcRenderer 持有者"}
+
+    if MARKER_IPC in src:
+        modified = False
+        broken_pattern = re.compile(r"\((?:_|[a-zA-Z0-9$]+)\)\.invoke\(\s*\"zcode:")
+        if broken_pattern.search(src):
+            src = broken_pattern.sub(f"({holder}).invoke(\"zcode:", src)
+            modified = True
+
+        if "simulateMouseClick" not in src:
+            extra = (
+                '  simulateMouseClick:(x,y)=>(%s).invoke("zcode:simulate-mouse-click",{x:x,y:y}),\n'
+                '  simulateMouseMove:(x,y)=>(%s).invoke("zcode:simulate-mouse-move",{x:x,y:y}),\n'
+            ) % (holder, holder)
+            anchor = "getModelMetadata:"
+            i = src.find(anchor)
+            if i >= 0:
+                j = src.find("\n", i)
+                src = src[: j + 1] + extra + src[j + 1 :]
+                modified = True
+
+        if modified:
+            if dry_run:
+                return {"layer": "preload", "ok": True, "applied": False, "note": f"待修复/补齐 preload IPC 通道（持有者：{holder}）"}
+            path.write_text(src, encoding="utf-8")
+            return {"layer": "preload", "ok": True, "applied": True, "note": f"已修复/补齐 preload IPC 通道（持有者：{holder}）"}
+
+        return {"layer": "preload", "ok": True, "applied": False, "note": "已含完整 IPC 通道，跳过"}
+
+    m = RE_PRELOAD_ANCHOR.search(src)
+    if not m:
+        return {"layer": "preload", "ok": False, "note": "未找到 window.zcode exposeInMainWorld 锚点"}
     keys = _PRELOAD_KEYS.replace("__H__", holder)
     if dry_run:
         return {"layer": "preload", "ok": True, "applied": False, "note": f"待注入（ipcRenderer 持有者：{holder}）"}
@@ -114,7 +129,7 @@ def patch_main(path: Path, dry_run: bool) -> dict:
 
     src = path.read_text(encoding="utf-8", errors="replace")
     if MARKER_IPC in src:
-        if "simulate-mouse-click" in src and "x:x,y:y" in src:
+        if "simulate-mouse-click" in src and ("x:x,y:y" in src or "x: x, y: y" in src or "sendInputEvent" in src):
             return {"layer": "main", "ok": True, "applied": False, "note": "已含完整 IPC 通道，跳过"}
         m = RE_MAIN_ANCHOR.search(src)
         if not m:
@@ -138,7 +153,7 @@ def patch_main(path: Path, dry_run: bool) -> dict:
     if dry_run:
         return {"layer": "main", "ok": True, "applied": False, "note": f"待注入（handle 载体：{he}）"}
     path.write_text(src[: m.start()] + handlers + src[m.start() :], encoding="utf-8")
-    return {"layer": "main", "ok": True, "applied": True, "note": f"已注册 6 个 IPC handler（handle 载体：{he}）"}
+    return {"layer": "main", "ok": True, "applied": True, "note": f"已注册 8 个 IPC handler（handle 载体：{he}）"}
 
 
 def copy_puller(path: Path, dry_run: bool) -> dict:
