@@ -9,6 +9,7 @@ from pathlib import Path
 ROOT_DIR = Path(__file__).resolve().parent.parent
 PULLER_JS = ROOT_DIR / "zcode-model-puller.js"
 OMP_EFFORTS_FILE = ROOT_DIR / "omp_efforts.json"
+MAIN_HANDLERS_JS = ROOT_DIR / "injector" / "main_handlers.js"
 
 MARKER_HTML = "./zcode-model-puller.js"
 MARKER_IPC = "zcode:read-model-config"

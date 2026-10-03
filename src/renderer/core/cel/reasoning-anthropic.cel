@@ -1,0 +1,14 @@
+reasoningLevel == "disabled"
+  ? {
+      "thinking": {
+        "type": "disabled"
+      }
+    }
+  : {
+      "thinking": {
+        "type": "adaptive"
+      },
+      "output_config": {
+        "effort": reasoningLevel == "enabled" ? "high" : reasoningLevel
+      }
+    }

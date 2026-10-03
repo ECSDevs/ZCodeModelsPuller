@@ -1,0 +1,10 @@
+{
+  "thinking": {
+    "type": reasoningLevel == "disabled" || reasoningLevel == "none" ? "disabled" : "enabled"
+  },
+  "enable_thinking": reasoningLevel != "disabled" && reasoningLevel != "none",
+  "reasoning_effort": reasoningLevel == "disabled" ? "none" : reasoningLevel == "enabled" ? "high" : reasoningLevel,
+  "reasoning": {
+    "effort": reasoningLevel == "disabled" ? "none" : reasoningLevel == "enabled" ? "high" : reasoningLevel
+  }
+}

@@ -88,23 +88,43 @@ export async function applyOfficialDialogAutofill(dialog, force = false) {
 
   // 获取元数据缓存或实时查询
   let meta = (window.__zcodeMeta || {})[modelId];
+  let metaError = null;
   if (!meta) {
     try {
       const api = getZCodeApi();
       if (api?.getModelMetadata) {
         const res = await api.getModelMetadata({ modelIds: [modelId] });
-        if (res && res.success && res.meta) {
+        if (res && res.meta && res.meta[modelId]) {
           window.__zcodeMeta = { ...(window.__zcodeMeta || {}), ...res.meta };
           meta = res.meta[modelId];
         }
+        if (res && !res.success) {
+          metaError = res.error || `未找到模型 ${modelId} 的 OMP efforts 思考档位配置（omp efforts 不存在）`;
+        }
       }
-    } catch (e) {}
+    } catch (e) {
+      metaError = e.message || String(e);
+    }
+  }
+
+  // 检查 omp efforts 是否存在：取消内置家族表，不存在时报错
+  const hasEfforts = meta && ((Array.isArray(meta.r) && meta.r.length > 0) || meta.reasoning === true);
+  if (!hasEfforts) {
+    const errMsg = metaError || `未找到模型 ${modelId} 的 OMP efforts 思考档位配置（omp efforts 不存在）`;
+    console.error("[ZCode-Model-Puller]", errMsg);
+    if (force) {
+      showToast(`❌ 错误：${errMsg}`);
+    }
   }
 
   const patch = buildOfficialDraftPatch(modelId, meta, apiFormat);
   onDraftChange(patch);
   dialog.setAttribute("data-zcode-autofilled", modelId);
-  showToast(`⚡️ 已自动填充 ${modelId} 官方参数与思考档位`);
+  if (hasEfforts) {
+    showToast(`⚡️ 已自动填充 ${modelId} 官方参数与思考档位`);
+  } else {
+    showToast(`⚡️ 已填充 ${modelId} 参数（OMP efforts 思考档位未收录）`);
+  }
   return true;
 }
 

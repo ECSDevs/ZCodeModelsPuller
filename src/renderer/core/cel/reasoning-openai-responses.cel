@@ -1,0 +1,5 @@
+{
+  "reasoning": {
+    "effort": reasoningLevel == "disabled" ? "none" : reasoningLevel == "enabled" ? "high" : reasoningLevel
+  }
+}

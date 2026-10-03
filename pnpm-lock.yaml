@@ -7,6 +7,10 @@ settings:
 importers:
 
   .:
+    dependencies:
+      preact:
+        specifier: ^11.0.0
+        version: 11.0.0
     devDependencies:
       esbuild:
         specifier: ^0.25.0
@@ -175,6 +179,14 @@ packages:
     engines: {node: '>=18'}
     hasBin: true
 
+  preact@11.0.0:
+    resolution: {integrity: sha512-LRTLKuSe6VYPhvBDjwFaX+nuZnpsw6IN2GSboisAvhGsncylBmrbDCERhgKDn6yP2mAwbGvsB5OVyTe33M8gBg==}
+    peerDependencies:
+      preact-render-to-string: '>=6.7.0'
+    peerDependenciesMeta:
+      preact-render-to-string:
+        optional: true
+
 snapshots:
 
   '@esbuild/aix-ppc64@0.25.12':
@@ -283,3 +295,5 @@ snapshots:
       '@esbuild/win32-arm64': 0.25.12
       '@esbuild/win32-ia32': 0.25.12
       '@esbuild/win32-x64': 0.25.12
+
+  preact@11.0.0: {}

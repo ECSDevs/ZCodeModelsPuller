@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -16,18 +17,58 @@ try:  # Windows 控制台默认 GBK，强制 UTF-8 输出
 except Exception:
     pass
 
+from gen_omp_efforts import ensure_omp_efforts
 from .asar import backup_asar, run_npx
-from .config import MARKER_HTML, MARKER_IPC, PULLER_JS, default_asar
+from .config import MARKER_HTML, MARKER_IPC, OMP_EFFORTS_FILE, PULLER_JS, ROOT_DIR, default_asar
 from .patcher import copy_puller, node_check_patched, patch_html, patch_main, patch_preload
 from .process import ensure_zcode_not_running
 from .utils import die, info, overwrite_file, scan_bytes, warn
 
 
+def ensure_puller_built() -> bool:
+    """如果前端脚本未构建，自动检测可用工具执行构建。"""
+    info("未检测到前端构建产物，正在自动执行构建 (pnpm / npm / npx esbuild) …")
+    pnpm = shutil.which("pnpm") or shutil.which("pnpm.cmd")
+    npm = shutil.which("npm") or shutil.which("npm.cmd")
+    tool = pnpm or npm
+    if tool:
+        cmd = [tool, "run", "build"]
+        res = subprocess.run(cmd, cwd=ROOT_DIR, capture_output=True, text=True)
+        if res.returncode == 0 and PULLER_JS.exists():
+            info("前端脚本自动构建成功 ✔")
+            return True
+        warn(f"执行 {tool} run build 未产出成功，尝试 npx 兜底: {res.stderr.strip()[:180]}")
+
+    npx = shutil.which("npx") or shutil.which("npx.cmd")
+    if npx:
+        cmd = [
+            npx, "esbuild", "src/renderer/index.js",
+            "--bundle", "--format=iife",
+            "--loader:.cel=text", "--loader:.css=text", "--loader:.html=text",
+            f"--outfile={PULLER_JS}"
+        ]
+        res = subprocess.run(cmd, cwd=ROOT_DIR, capture_output=True, text=True)
+        if res.returncode == 0 and PULLER_JS.exists():
+            info("通过 npx esbuild 自动构建前端脚本成功 ✔")
+            return True
+    return False
+
+
 def cmd_install(asar: Path, bak: Path, dry_run: bool) -> None:
     if not asar.exists():
         die(f"找不到 app.asar：{asar}\n可用 --asar 指定路径。")
+
+    # 自动生成或更新 OMP efforts 档位表（支持有效期与自动更新）
+    ensure_omp_efforts(OMP_EFFORTS_FILE)
+    if not OMP_EFFORTS_FILE.exists():
+        die(f"未能自动生成或找到 OMP efforts 档位表：{OMP_EFFORTS_FILE}")
+
+    # 自动检测并构建前端注入脚本
     if not PULLER_JS.exists():
-        die(f"找不到前端脚本：{PULLER_JS}")
+        ensure_puller_built()
+    if not PULLER_JS.exists():
+        die(f"未能自动构建前端脚本：{PULLER_JS}\n请尝试手动运行 pnpm install && pnpm run build")
+
     if not dry_run and not ensure_zcode_not_running():
         die("ZCode 正在运行，已中止（未改动任何文件）。请完全退出 ZCode 后重试。")
 
@@ -133,6 +174,7 @@ def cmd_check(asar: Path, bak: Path) -> None:
         warn("状态：疑似部分注入/异常。建议 --restore 还原后重新安装。")
     else:
         info("状态：未注入（可安全安装）。")
+    info("OMP 档位表：" + ("存在 ✔" if OMP_EFFORTS_FILE.exists() else f"缺失 ✘（{OMP_EFFORTS_FILE} 不存在）"))
     info("备份：" + ("存在 → " + str(bak) if bak.exists() else "不存在（首次安装时会创建）"))
 
 

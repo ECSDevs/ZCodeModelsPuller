@@ -13,38 +13,31 @@
 | `limit.context` / `limit.output` | models.dev `limit`（`context`/`input`/`output`） |
 | `modalities` | models.dev `modalities`（缺省 `text→text`） |
 | `supportsTools` / `supportsStructuredOutput` | models.dev `tool_call` / `structured_output` |
-| `reasoning` | models.dev `reasoning` + 内置 efforts 表（见下） |
+| `reasoning` | OMP efforts 思考档位表（支持忽略前后缀匹配，取消内置家族表，见下） |
 | `name` | models.dev `name` |
 
 规则细节：
 
 - **GPT 系 context 封顶**：`min(原值, 272000)`——超过 272k 计费双倍，无论来自目录还是兜底；目录查不到 GPT 模型时 context 默认 `272000`、output 缺失时默认 `128000`。
 - models.dev 目录缓存在 `~\.zcode\v2\.models-dev-cache.json`（3 天有效，下载失败自动回退过期缓存）。
-- 模型匹配：目录全键 → 末段（去 vendor 前缀）精确 → 唯一模糊命中；未命中时用内置表兜底，不中断。
+- 模型匹配：支持忽略前后缀匹配（自动剥离厂商路径前缀与日期/版本/修饰后缀）精准匹配；未收录且 omp efforts 不存在时明确报错，已取消内置家族表兜底。
 - **思考档位（官方编辑弹窗）**：在 ZCode 官方「编辑模型配置」弹窗中注入「思考档位 (efforts)」**多选列表**，打开时回填该模型当前 `reasoning.variants`，勾选即写回 `variants` / `defaultVariant`（取勾选最高档）；并**劫持官方保存按钮**，保存完成后兜底重写 efforts，防止官方保存覆盖。该注入依赖官方弹窗 DOM 结构（`上下文窗口` 字段容器类），ZCode 大版本更新后需重新适配。
 - 配置写入：`%USERPROFILE%\.zcode\v2\config.json`。
 - **新增供应商时拉取**：在官方「添加供应商」表单填好 Base URL / 名称 / API Key 后点「⚡️ 自动拉取模型」，勾选确认后**无感填入**：通过 React fiber 直接 hook 官方 `onAddModel` 回调，把模型批量注入官方表单的模型列表（不弹逐窗），保存按钮随即解锁；hook 不可用时自动降级为逐个驱动官方「添加模型」弹窗。随后点官方「保存」，保存时/保存后劫持兜底，自动补全 `limit` / `modalities` / `reasoning`（efforts 按 OMP 表）等元数据。
 
-### reasoning efforts 档位（OMP 表为主 + 家族表兜底）
+### reasoning efforts 档位（严格来源于 OMP 表，已取消内置家族表）
 
-models.dev 只给出是否支持 reasoning（`true/false`）。具体档位按顺序取：
+具体档位获取规则：
 
-1. **[oh-my-pi/pi-catalog](https://github.com/can1357/oh-my-pi) 模型级档位表**（[omp_efforts.json](omp_efforts.json)，由 [gen_omp_efforts.py](gen_omp_efforts.py) 从 OMP 内置目录直接生成，当前收录 **2898** 个模型的 `reasoning`/`efforts`）——按短模型 id 精确匹配，`variants = 该模型实际档位`，`defaultVariant = 最高档`；`gpt-5.6*` 额外并入 `ultra`。
-2. OMP 未收录时回退到**内置家族表**：
+1. **[oh-my-pi/pi-catalog](https://github.com/can1357/oh-my-pi) 模型级档位表**（[omp_efforts.json](omp_efforts.json)，由 [gen_omp_efforts.py](gen_omp_efforts.py) 从 OMP 内置目录直接生成）——**允许忽略前后缀匹配模型**：
+   - 自动剥离 `openai/`、`anthropic/`、`deepseek-ai/` 等组织路径前缀；
+   - 自动剥离 `-2024-12-17`、`-20250219`、`-0513` 等日期后缀，以及 `-latest`、`-preview`、`-chat`、`-v1` 等版本与标签修饰后缀；
+   - 提取模型核心标识在 OMP 档位表中精准定位，`variants = 该模型实际档位`，`defaultVariant = 最高档`；`gpt-5.6*` 额外并入 `ultra`。
+2. **已取消内置家族表**：未收录的模型不再使用硬编码家族表兜底猜测档位，若在 OMP 中不存在 efforts，直接报错并提示用户，防止错误覆盖。
+3. **有效期与自动更新**：`omp_efforts.json` 具备有效期元数据（默认 7 天）。在执行 `install.ps1`（或 `python inject_windows.py`）时自动检测：若本地无数据或已过期，自动从上游拉取更新；网络故障时优雅回退本地缓存，不阻塞流程。
+4. **全自动构建自愈**：临时构建脚本 `zcode-model-puller.js` 与数据表 `omp_efforts.json` 已从 Git 追踪中移至 `.gitignore`。安装时若检测到未构建，注入器会自动执行 `pnpm run build`（或 npm / npx esbuild）自动生成产物。
 
-| 模型 | variants | default |
-|---|---|---|
-| `gpt-5.6*`（sol / terra / luna） | low, medium, high, xhigh, max, ultra | medium |
-| `gpt-5.x`（5.1–5.5 等，非 5.6） | low, medium, high, xhigh | medium |
-| 其余 `gpt-*`（含 4.x、gpt-oss） | low, medium, high | medium |
-| `o1` / `o3` / `o4` | low, medium, high | medium |
-| `glm*` | low, max, high | max |
-| `kimi*` / `moonshot*` | low, high, max | max |
-| `gemini-3*` | low, high | high |
-| `deepseek*`（V3/V4 等） | low, high, max | high |
-| `deepseek-r1/reasoner`、`gemini-2.5`、`qwen*`、`grok*`、`claude*` | 无档位，仅 `{enabled: true}` | — |
-
-> 生成方式：`python gen_omp_efforts.py`（拉取 OMP `packages/catalog/src/models.json` 并精简为 `omp_efforts.json`，可随时重跑以跟随上游更新）。
+> 手动生成/刷新方式：`python gen_omp_efforts.py [--force]`。
 
 ## 前置要求
 
