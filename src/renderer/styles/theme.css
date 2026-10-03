@@ -52,10 +52,11 @@
     }
 
     /* 弹窗遮罩：遵循 DialogOverlay (bg-black/60 backdrop-blur-xs) */
-    .zcode-pull-modal-overlay {
+    .zcode-pull-modal-overlay,
+    .zcode-pull-overlay {
       position: fixed;
       inset: 0;
-      z-index: 1000;
+      z-index: 99999;
       background: rgba(0, 0, 0, 0.6);
       backdrop-filter: blur(4px);
       display: flex;
@@ -258,18 +259,21 @@
       align-items: center;
       gap: 12px;
     }
-    .zcode-pull-count-info {
+    .zcode-pull-count-info,
+    .zcode-pull-summary {
       font-size: calc(var(--ui-font-size, 14px) - 1px); /* text-ui-caption */
       color: var(--color-foreground-subtle, #71717a);
     }
-    .zcode-pull-count-info strong {
+    .zcode-pull-count-info strong,
+    .zcode-pull-summary strong {
       color: var(--color-foreground, #18181b);
     }
     .zcode-pull-footer-btns {
       display: flex;
       gap: 8px;
     }
-    .zcode-pull-btn-cancel {
+    .zcode-pull-btn-cancel,
+    .zcode-pull-btn-secondary {
       height: 32px;
       padding: 0 14px;
       border-radius: 6px;
@@ -282,10 +286,12 @@
       transition: background-color 0.15s ease;
       user-select: none;
     }
-    .zcode-pull-btn-cancel:hover {
+    .zcode-pull-btn-cancel:hover,
+    .zcode-pull-btn-secondary:hover {
       background-color: var(--color-hover, rgba(0, 0, 0, 0.08));
     }
-    .zcode-pull-btn-submit {
+    .zcode-pull-btn-submit,
+    .zcode-pull-btn-primary {
       height: 32px;
       padding: 0 16px;
       border-radius: 6px;
@@ -301,10 +307,12 @@
       transition: opacity 0.15s ease, background-color 0.15s ease;
       user-select: none;
     }
-    .zcode-pull-btn-submit:hover:not(:disabled) {
+    .zcode-pull-btn-submit:hover:not(:disabled),
+    .zcode-pull-btn-primary:hover:not(:disabled) {
       opacity: 0.9;
     }
-    .zcode-pull-btn-submit:disabled {
+    .zcode-pull-btn-submit:disabled,
+    .zcode-pull-btn-primary:disabled {
       opacity: 0.5;
       cursor: not-allowed;
     }
@@ -315,7 +323,7 @@
       top: 24px;
       left: 50%;
       transform: translateX(-50%);
-      z-index: 2000;
+      z-index: 100000;
       background-color: var(--color-popover, #18181b);
       color: var(--color-foreground, #f4f4f5);
       padding: 8px 16px;

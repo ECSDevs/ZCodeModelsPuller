@@ -70,7 +70,7 @@ export function PullModal({
   };
 
   return (
-    <div class="zcode-pull-overlay" onClick={(e) => {
+    <div class="zcode-pull-modal-overlay zcode-pull-overlay" onClick={(e) => {
       if (e.target === e.currentTarget) onClose();
     }}>
       <div class="zcode-pull-modal">
@@ -163,7 +163,7 @@ export function PullModal({
           </div>
 
           <div class="zcode-pull-footer">
-            <div class="zcode-pull-summary">
+            <div class="zcode-pull-count-info zcode-pull-summary">
               已选择{" "}
               <span class="zcode-pull-num" id="zcode-selected-num">
                 {selectedIds.size}
@@ -173,7 +173,7 @@ export function PullModal({
             <div class="zcode-pull-footer-btns">
               <button
                 type="button"
-                class="zcode-pull-btn-secondary"
+                class="zcode-pull-btn-cancel zcode-pull-btn-secondary"
                 id="zcode-modal-cancel"
                 onClick={onClose}
               >
@@ -181,7 +181,7 @@ export function PullModal({
               </button>
               <button
                 type="button"
-                class="zcode-pull-btn-primary"
+                class="zcode-pull-btn-submit zcode-pull-btn-primary"
                 id="zcode-modal-confirm"
                 disabled={selectedIds.size === 0 || submitting}
                 onClick={handleConfirm}
