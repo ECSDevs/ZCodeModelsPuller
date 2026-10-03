@@ -6,6 +6,7 @@ import { getFormCredentials } from "../dom/credentials.js";
 import { getZCodeApi } from "../core/ipc.js";
 import { showToast } from "../core/toast.js";
 import { openModelSelectModal } from "./pull-modal.js";
+import { getFiber } from "../core/fiber.js";
 
 export function checkAndInject() {
   let addModelBtn =
@@ -99,7 +100,16 @@ export function checkAndInject() {
       }
 
       if (result?.success && result.models?.length > 0) {
-        await openModelSelectModal(result.models, baseUrl, apiKey);
+        let currentProviderId = null;
+      let f = getFiber(addModelBtn);
+      while (f) {
+        if (f.memoizedProps) {
+          if (!currentProviderId && f.memoizedProps.providerId) currentProviderId = f.memoizedProps.providerId;
+          if (!currentProviderId && f.memoizedProps.provider?.providerId) currentProviderId = f.memoizedProps.provider.providerId;
+        }
+        f = f.return;
+      }
+      await openModelSelectModal(result.models, baseUrl, apiKey, currentProviderId);
       } else {
         showToast(result?.error ? `拉取失败: ${result.error}` : "未获取到模型，请检查 Base URL 和 API Key");
       }

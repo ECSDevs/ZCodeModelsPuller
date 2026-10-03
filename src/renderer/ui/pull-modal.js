@@ -15,8 +15,8 @@ export { triggerZCodeUIRefresh };
 
 let modalContainer = null;
 
-export async function openModelSelectModal(models, baseUrl, apiKey) {
-  const existingModels = await getExistingModels(baseUrl);
+export async function openModelSelectModal(models, baseUrl, apiKey, providerId = null) {
+  const existingModels = await getExistingModels(baseUrl, providerId);
   const existingSet = new Set(existingModels);
 
   if (modalContainer) {
