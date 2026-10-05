@@ -381,3 +381,58 @@
       color: var(--color-foreground-subtlest, #a1a1aa);
       font-size: calc(var(--ui-font-size, 14px) - 2px);
     }
+
+    /* 分类标签切换栏 */
+    .zcode-pull-tabs {
+      display: flex;
+      gap: 6px;
+      padding: 0;
+      border-bottom: 1px solid var(--color-border, #e4e4e7);
+      padding-bottom: 8px;
+    }
+    .zcode-pull-tab {
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: calc(var(--ui-font-size, 14px) - 2px);
+      font-weight: 500;
+      background: transparent;
+      border: 1px solid transparent;
+      color: var(--color-foreground-subtle, #71717a);
+      cursor: pointer;
+      transition: all 0.15s ease;
+      user-select: none;
+    }
+    .zcode-pull-tab:hover {
+      background-color: var(--color-hover, rgba(0, 0, 0, 0.05));
+      color: var(--color-foreground, #18181b);
+    }
+    .zcode-pull-tab.active {
+      background-color: var(--color-secondary, #f4f4f5);
+      border-color: var(--color-border, #e4e4e7);
+      color: var(--color-foreground, #18181b);
+    }
+    .zcode-pull-tab-delete.active {
+      color: var(--color-destructive, #ef4444);
+      border-color: color-mix(in srgb, var(--color-destructive, #ef4444) 30%, transparent);
+      background-color: color-mix(in srgb, var(--color-destructive, #ef4444) 12%, transparent);
+    }
+
+    /* 减量条目特殊标识 */
+    .zcode-pull-item-delete {
+      opacity: 0.95;
+    }
+    .zcode-pull-badge-delete {
+      background-color: color-mix(in srgb, var(--color-destructive, #ef4444) 12%, transparent);
+      color: var(--color-destructive, #ef4444);
+      border: 1px solid color-mix(in srgb, var(--color-destructive, #ef4444) 28%, transparent);
+    }
+    .zcode-pull-mini-btn-delete {
+      color: var(--color-destructive, #ef4444);
+    }
+    .zcode-pull-mini-btn-delete:hover {
+      background-color: color-mix(in srgb, var(--color-destructive, #ef4444) 15%, transparent);
+    }
+    .zcode-pull-mini-btn-sync {
+      font-weight: 600;
+      color: var(--color-primary, #18181b);
+    }

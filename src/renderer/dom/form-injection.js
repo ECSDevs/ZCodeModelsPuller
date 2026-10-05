@@ -8,6 +8,9 @@ import { findPropUp, findPropsUp, getFiber } from "../core/fiber.js";
 import { buildOfficialModelConfig } from "../core/model-specs.js";
 import { setNativeValue, waitFor } from "../core/dom-utils.js";
 import { showToast } from "../core/toast.js";
+import { getZCodeApi } from "../core/ipc.js";
+import { getCurrentProviderId } from "./existing-models.js";
+import { triggerZCodeUIRefresh } from "./refresh.js";
 
 // 读取添加供应商页「API 格式」下拉 → 映射为模型条目需要的 kind
 export function readApiKind() {
@@ -324,4 +327,218 @@ export async function addModelsViaModal(ids) {
       await new Promise((r) => setTimeout(r, 100));
     }
   }
+}
+
+
+// 触发当前详情卡片快速 reload
+export function triggerDirectReload() {
+  try {
+    const addBtn =
+      document.querySelector('[data-testid="model-provider-add-model-button"]') ||
+      Array.from(document.querySelectorAll("button")).find(
+        (b) => /添加模型|add model/i.test((b.textContent || "").trim()) && b.offsetParent !== null
+      );
+    if (addBtn) {
+      let f = getFiber(addBtn);
+      while (f) {
+        if (f.memoizedProps && typeof f.memoizedProps.onRefresh === "function") {
+          f.memoizedProps.onRefresh();
+          break;
+        }
+        f = f.return;
+      }
+    }
+  } catch (e) {}
+  triggerZCodeUIRefresh();
+}
+
+// 快速单模型删除回调
+export async function deleteModelFromOfficialForm(id, currentProviderId = null) {
+  const addBtn =
+    document.querySelector('[data-testid="model-provider-add-model-button"]') ||
+    Array.from(document.querySelectorAll("button")).find(
+      (b) => /添加模型|add model/i.test((b.textContent || "").trim()) && b.offsetParent !== null
+    );
+  if (!addBtn) return false;
+
+  let onDelete = findPropUp(addBtn, "onDeleteModel");
+  let onDeletePersonal = findPropUp(addBtn, "onDeletePersonalModel");
+
+  if (typeof onDelete === "function") {
+    await onDelete(id);
+    return true;
+  }
+  if (typeof onDeletePersonal === "function" && currentProviderId) {
+    await onDeletePersonal(currentProviderId, id);
+    return true;
+  }
+  return false;
+}
+
+/**
+ * 核心批量同步入口：
+ * 优先执行直写配置文件（极速毫秒级原子保存并触发 reload config，跳过慢速逐个操作）；
+ * 若直写环境受限则优雅回退至 Fiber 逐个操作模式。
+ */
+export async function syncModelsToOfficialConfig({
+  toAdd = [],
+  toOverwrite = [],
+  toDelete = [],
+  currentProviderId = null,
+  baseUrl = ""
+}) {
+  const providerId = currentProviderId || getCurrentProviderId() || "custom";
+
+  // 1. 首选：极速直写配置文件（单次原子 IO，毫秒级响应，跳过慢速逐个循环）
+  try {
+    const api = getZCodeApi();
+    if (api && api.readConfigFile && api.writeConfigFile) {
+      const cfgRes = await api.readConfigFile();
+      if (cfgRes && cfgRes.success && cfgRes.data) {
+        const cfg = cfgRes.data;
+
+        // 1.1 新版 provider_config.json 结构
+        if (cfg.config?.providerConfigRules?.providerRules) {
+          const pRules = cfg.config.providerConfigRules.providerRules;
+          let targetRule = pRules.find((r) => r.providerId === providerId || r.id === providerId);
+
+          if (!targetRule && baseUrl) {
+            const cleanBase = baseUrl.replace(/\/+$/, "");
+            targetRule = pRules.find((r) => (r.config?.api?.baseUrl || "").replace(/\/+$/, "") === cleanBase);
+          }
+
+          if (targetRule) {
+            if (!targetRule.config) targetRule.config = {};
+            let personalModelIds = Array.isArray(targetRule.config.personalModelIds)
+              ? [...targetRule.config.personalModelIds]
+              : [];
+
+            // 减量：移除选中的下线模型
+            if (toDelete.length > 0) {
+              const deleteSet = new Set(toDelete);
+              personalModelIds = personalModelIds.filter((id) => !deleteSet.has(id));
+            }
+
+            // 增量：追加新模型 ID
+            for (const id of toAdd) {
+              if (!personalModelIds.includes(id)) {
+                personalModelIds.push(id);
+              }
+            }
+            targetRule.config.personalModelIds = personalModelIds;
+
+            // 更新 manualProviderModelRules 规则表
+            if (!cfg.config.modelConfigRules) cfg.config.modelConfigRules = {};
+            if (!Array.isArray(cfg.config.modelConfigRules.manualProviderModelRules)) {
+              cfg.config.modelConfigRules.manualProviderModelRules = [];
+            }
+            let manualRules = cfg.config.modelConfigRules.manualProviderModelRules;
+
+            // 从规则表中清除减量模型
+            if (toDelete.length > 0) {
+              const deleteSet = new Set(toDelete);
+              manualRules = manualRules.filter(
+                (r) => !((r.providerId === providerId || r.id === providerId) && deleteSet.has(r.modelId))
+              );
+            }
+
+            // 写入增量与覆盖更新模型的参数
+            const toUpsert = [...toAdd, ...toOverwrite];
+            for (const id of toUpsert) {
+              const me = (window.__zcodeMeta || {})[id] || {};
+              const fullOfficialConfig = buildOfficialModelConfig(id, me);
+              const cleanPersonal = sanitizePersonalConfig(fullOfficialConfig);
+
+              const existingRule = manualRules.find(
+                (r) => (r.providerId === providerId || r.id === providerId) && r.modelId === id
+              );
+              if (existingRule) {
+                existingRule.config = {
+                  ...cleanPersonal,
+                  enabled: true,
+                };
+              } else {
+                manualRules.push({
+                  modelId: id,
+                  providerId,
+                  config: {
+                    ...cleanPersonal,
+                    enabled: true,
+                  },
+                });
+              }
+            }
+            cfg.config.modelConfigRules.manualProviderModelRules = manualRules;
+
+            const writeRes = await api.writeConfigFile(cfg);
+            if (writeRes && writeRes.success) {
+              console.log("[ZCode-Model-Puller] 极速原子直写配置成功，正在触发界面重载...");
+              triggerDirectReload();
+              return {
+                ok: true,
+                direct: true,
+                added: toAdd.length,
+                overwritten: toOverwrite.length,
+                deleted: toDelete.length,
+              };
+            }
+          }
+        }
+        // 1.2 旧版 config.json 结构
+        else if (cfg.provider) {
+          let targetProv = cfg.provider[providerId];
+          if (!targetProv && baseUrl) {
+            const cleanBase = baseUrl.replace(/\/+$/, "");
+            for (const [pid, pdata] of Object.entries(cfg.provider)) {
+              if ((pdata.options?.baseURL || "").replace(/\/+$/, "") === cleanBase) {
+                targetProv = pdata;
+                break;
+              }
+            }
+          }
+          if (targetProv) {
+            if (!targetProv.models) targetProv.models = {};
+            for (const id of toDelete) delete targetProv.models[id];
+            for (const id of [...toAdd, ...toOverwrite]) {
+              const me = (window.__zcodeMeta || {})[id] || {};
+              targetProv.models[id] = { id, name: me.name || id };
+            }
+            const writeRes = await api.writeConfigFile(cfg);
+            if (writeRes && writeRes.success) {
+              triggerDirectReload();
+              return {
+                ok: true,
+                direct: true,
+                added: toAdd.length,
+                overwritten: toOverwrite.length,
+                deleted: toDelete.length,
+              };
+            }
+          }
+        }
+      }
+    }
+  } catch (directErr) {
+    console.warn("[ZCode-Model-Puller] 直写配置发生异常，自动回退到逐个操作模式:", directErr);
+  }
+
+  // 2. 回退机制：若直写不可用，走 Fiber 逐个操作 (先删后加/Commit)
+  console.log("[ZCode-Model-Puller] 正在走逐个操作回退模式...");
+  let deletedCount = 0;
+  for (const id of toDelete) {
+    try {
+      await deleteModelFromOfficialForm(id, providerId);
+      deletedCount++;
+    } catch (e) {
+      console.warn(`[ZCode-Model-Puller] 删除模型 ${id} 失败:`, e);
+    }
+  }
+
+  const addResult = await addModelsToOfficialForm([...toAdd, ...toOverwrite]);
+  return {
+    ok: addResult.ok || deletedCount > 0,
+    added: addResult.added || 0,
+    overwritten: addResult.overwritten || 0,
+    deleted: deletedCount,
+  };
 }
